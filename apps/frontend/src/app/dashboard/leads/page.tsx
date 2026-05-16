@@ -1,0 +1,429 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/store/auth";
+import { API_BASE_URL } from "@/lib/config";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { 
+  Target, 
+  Plus, 
+  Search, 
+  Filter, 
+  Mail, 
+  Phone, 
+  Building2, 
+  ChevronRight,
+  TrendingUp,
+  Clock,
+  MoreVertical,
+  CheckCircle2,
+  XCircle,
+  FileText
+} from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from "@/components/ui/dropdown-menu";
+
+interface Lead {
+  id: string;
+  company_name: string;
+  contact_person: string;
+  email?: string;
+  phone?: string;
+  status: string;
+  source?: string;
+  created_at: string;
+  closure_probability?: number;
+  next_follow_up?: string;
+  quotations?: Array<{ total_amount: number }>;
+}
+
+export default function LeadsPage() {
+  const router = useRouter();
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const token = useAuthStore((state) => state.token);
+
+  const [formData, setFormData] = useState({
+    company_name: "",
+    contact_person: "",
+    email: "",
+    phone: "",
+    source: "Website",
+    notes: "",
+    closure_probability: 50,
+    next_follow_up: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  });
+
+  useEffect(() => {
+    fetchLeads();
+  }, [token]);
+
+  const fetchLeads = async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setLeads(data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(formData)
+      });
+      if (res.ok) {
+        setOpen(false);
+        setFormData({ 
+          company_name: "", 
+          contact_person: "", 
+          email: "", 
+          phone: "", 
+          source: "Website", 
+          notes: "",
+          closure_probability: 50,
+          next_follow_up: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        });
+        toast.success("Lead captured successfully!");
+        fetchLeads();
+      }
+    } catch (e) {
+      toast.error("Failed to capture lead.");
+      console.error(e);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConvertToClient = async (id: string) => {
+    if (!token) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/leads/${id}/convert`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        toast.success("Lead successfully converted to Client!");
+        fetchLeads();
+      } else {
+        toast.error("Conversion failed.");
+      }
+    } catch (e) {
+      toast.error("Network error.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'NEW': return 'bg-blue-500/10 text-blue-400 ring-blue-500/20';
+      case 'CONTACTED': return 'bg-amber-500/10 text-amber-400 ring-amber-500/20';
+      case 'PROPOSAL': return 'bg-purple-500/10 text-purple-400 ring-purple-500/20';
+      case 'WON': return 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20';
+      case 'LOST': return 'bg-rose-500/10 text-rose-400 ring-rose-500/20';
+      default: return 'bg-muted text-muted-foreground ring-border';
+    }
+  };
+
+  return (
+    <div className="space-y-8 pb-10">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-1">
+          <h1 className="text-3xl lg:text-4xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600">
+            Sales Pipeline
+          </h1>
+          <p className="text-muted-foreground font-medium text-sm lg:text-base">Track opportunities and nurture relationships across the sales pipeline.</p>
+        </div>
+
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger render={<Button className="inline-flex items-center justify-center rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-xl shadow-indigo-500/20 px-8 h-12 transition-all active:scale-95 text-sm lg:text-base border-0" />}>
+            <Plus className="w-5 h-5 mr-2" /> Capture New Lead
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[600px] bg-card border-border text-foreground rounded-[2rem]">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold">New Sales Opportunity</DialogTitle>
+              <DialogDescription className="text-muted-foreground">Record lead details and start the qualification process.</DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleCreateLead} className="space-y-4 mt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Company Name</Label>
+                  <Input 
+                    value={formData.company_name}
+                    onChange={(e) => setFormData({...formData, company_name: e.target.value})}
+                    placeholder="Acme Global"
+                    className="bg-background border-border h-11 rounded-xl"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Contact Person</Label>
+                  <Input 
+                    value={formData.contact_person}
+                    onChange={(e) => setFormData({...formData, contact_person: e.target.value})}
+                    placeholder="John Doe"
+                    className="bg-background border-border h-11 rounded-xl"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Email Address</Label>
+                  <Input 
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({...formData, email: e.target.value})}
+                    placeholder="john@acme.com"
+                    className="bg-background border-border h-11 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Phone Number</Label>
+                  <Input 
+                    value={formData.phone}
+                    onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                    placeholder="+91 98765 43210"
+                    className="bg-background border-border h-11 rounded-xl"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Lead Source</Label>
+                <select 
+                  className="w-full bg-background border border-border rounded-xl h-11 px-3 text-sm focus:ring-2 focus:ring-indigo-500 text-foreground"
+                  value={formData.source}
+                  onChange={(e) => setFormData({...formData, source: e.target.value})}
+                >
+                  <option>Website</option>
+                  <option>Referral</option>
+                  <option>LinkedIn</option>
+                  <option>Cold Call</option>
+                  <option>Event</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Closure Probability (%)</Label>
+                  <Input 
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={formData.closure_probability}
+                    onChange={(e) => setFormData({...formData, closure_probability: Number(e.target.value)})}
+                    className="bg-background border-border h-11 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Next Follow-up</Label>
+                  <Input 
+                    type="date"
+                    value={formData.next_follow_up}
+                    onChange={(e) => setFormData({...formData, next_follow_up: e.target.value})}
+                    className="bg-background border-border h-11 rounded-xl"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <textarea 
+                  className="w-full bg-background border border-border rounded-xl p-3 text-sm min-h-[100px] focus:ring-2 focus:ring-indigo-500 text-foreground"
+                  value={formData.notes}
+                  onChange={(e) => setFormData({...formData, notes: e.target.value})}
+                  placeholder="Additional context about the opportunity..."
+                />
+              </div>
+              <DialogFooter>
+                <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold w-full h-12 shadow-xl shadow-indigo-500/20 rounded-xl mt-4 border-0">
+                  {submitting ? "Saving..." : "Create Opportunity"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {[
+          { 
+            label: "Pipeline Value", 
+            value: `₹${(leads.reduce((acc, lead) => 
+              acc + (lead.quotations?.reduce((sum, q) => sum + Number(q.total_amount), 0) || 0), 0) / 100000).toFixed(1)}L`, 
+            icon: TrendingUp, 
+            color: "text-blue-600 dark:text-blue-400", 
+            bg: "bg-blue-500/10" 
+          },
+          { 
+            label: "Active Leads", 
+            value: leads.filter(l => l.status !== 'WON' && l.status !== 'LOST').length, 
+            icon: Target, 
+            color: "text-purple-600 dark:text-purple-400", 
+            bg: "bg-purple-500/10" 
+          },
+          { 
+            label: "New Leads (7d)", 
+            value: leads.filter(l => new Date(l.created_at) > new Date(Date.now() - 7 * 86400000)).length, 
+            icon: Clock, 
+            color: "text-amber-600 dark:text-amber-400", 
+            bg: "bg-amber-500/10" 
+          },
+          { 
+            label: "Win Rate", 
+            value: leads.length > 0 ? `${((leads.filter(l => l.status === 'WON').length / leads.length) * 100).toFixed(0)}%` : "0%", 
+            icon: CheckCircle2, 
+            color: "text-emerald-600 dark:text-emerald-400", 
+            bg: "bg-emerald-500/10" 
+          }
+        ].map((stat, i) => (
+          <div key={i} className="bg-card/40 border border-border rounded-[2rem] p-6 flex items-center justify-between backdrop-blur-md shadow-sm">
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">{stat.label}</p>
+              <p className="text-3xl font-black text-foreground">{stat.value}</p>
+            </div>
+            <div className={`w-12 h-12 rounded-2xl ${stat.bg} flex items-center justify-center ${stat.color} border border-border/50`}>
+              <stat.icon className="w-6 h-6" />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-card/40 border border-border rounded-[2.5rem] overflow-hidden shadow-sm backdrop-blur-md">
+        <div className="overflow-x-auto scrollbar-hide">
+          <table className="w-full text-left min-w-[800px] lg:min-w-0">
+            <thead className="bg-muted border-b border-border">
+              <tr>
+                <th className="px-6 py-5 text-xs font-bold text-muted-foreground uppercase tracking-widest">Company & Source</th>
+                <th className="px-6 py-5 text-xs font-bold text-muted-foreground uppercase tracking-widest hidden md:table-cell">Primary Contact</th>
+                <th className="px-6 py-5 text-xs font-bold text-muted-foreground uppercase tracking-widest">Lead Stage & Win %</th>
+                <th className="px-6 py-5 text-xs font-bold text-muted-foreground uppercase tracking-widest hidden lg:table-cell">Next Action</th>
+                <th className="px-6 py-5 text-xs font-bold text-muted-foreground uppercase tracking-widest text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {loading ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground italic">Synchronizing sales pipeline...</td>
+                </tr>
+              ) : leads.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground italic">No leads found in the pipeline.</td>
+                </tr>
+              ) : leads.map((lead) => (
+                <tr key={lead.id} className="hover:bg-accent/5 transition-colors group">
+                  <td className="px-6 py-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center border border-border group-hover:scale-110 transition-transform">
+                        <Building2 className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <div className="text-foreground font-bold text-base">{lead.company_name}</div>
+                        <div className="text-muted-foreground text-[10px] font-black uppercase tracking-widest mt-0.5">{lead.source}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-6 hidden md:table-cell">
+                    <div className="text-foreground/90 font-bold">{lead.contact_person}</div>
+                    <div className="flex items-center gap-2 text-muted-foreground text-xs mt-1">
+                      <Mail className="w-3.5 h-3.5" /> {lead.email || "--"}
+                    </div>
+                  </td>
+                  <td className="px-6 py-6">
+                    <div className="flex flex-col gap-2">
+                      <span className={cn("px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tighter ring-1 w-fit", getStatusColor(lead.status))}>
+                        {lead.status}
+                      </span>
+                      <div className="flex items-center gap-2">
+                         <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden w-20">
+                            <div className="h-full bg-indigo-500" style={{ width: `${lead.closure_probability || 0}%` }} />
+                         </div>
+                         <span className="text-[10px] font-bold text-muted-foreground">{lead.closure_probability || 0}%</span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-6 text-muted-foreground text-sm font-bold hidden lg:table-cell">
+                    {lead.next_follow_up ? (
+                      <div className="flex flex-col">
+                         <span className="text-xs text-indigo-600 font-black uppercase">Follow-up</span>
+                         <span className="text-foreground">{new Date(lead.next_follow_up).toLocaleDateString([], { day: '2-digit', month: 'short' })}</span>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground italic">No action set</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-6 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-accent/10 rounded-2xl w-10 h-10">
+                        <FileText className="w-4 h-4" />
+                      </Button>
+                      
+                      <DropdownMenu>
+                        <DropdownMenuTrigger render={
+                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-accent/10 rounded-2xl w-10 h-10" />
+                        }>
+                          <MoreVertical className="w-4 h-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent className="bg-card border-border text-foreground min-w-[180px] rounded-2xl shadow-2xl p-2">
+                          <DropdownMenuItem className="hover:bg-accent/10 cursor-pointer flex items-center gap-3 py-3 rounded-xl font-bold text-sm">
+                            <Mail className="w-4 h-4 text-muted-foreground" /> Send Email
+                          </DropdownMenuItem>
+                          <DropdownMenuItem 
+                            onClick={() => router.push(`/dashboard/quotations?leadId=${lead.id}`)}
+                            className="hover:bg-primary/10 hover:text-primary cursor-pointer flex items-center gap-3 py-3 rounded-xl font-bold text-sm"
+                          >
+                            <FileText className="w-4 h-4" /> Create Quotation
+                          </DropdownMenuItem>
+
+                          {lead.status !== 'WON' && (
+                            <DropdownMenuItem 
+                              onClick={() => handleConvertToClient(lead.id)}
+                              className="hover:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 cursor-pointer flex items-center gap-3 py-3 rounded-xl font-bold text-sm"
+                            >
+                              <CheckCircle2 className="w-4 h-4" /> Convert to Client
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem className="hover:bg-destructive/10 text-destructive cursor-pointer flex items-center gap-3 py-3 rounded-xl font-bold text-sm mt-1 border-t border-border">
+                            <XCircle className="w-4 h-4" /> Mark as Lost
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  );
+}

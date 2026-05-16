@@ -1,0 +1,373 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useAuthStore } from "@/store/auth";
+import { API_BASE_URL } from "@/lib/config";
+import { Button } from "@/components/ui/button";
+import { 
+  Clock, 
+  MapPin, 
+  CheckCircle2, 
+  Calendar, 
+  Timer, 
+  ArrowRightLeft,
+  User,
+  History,
+  AlertCircle
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface Attendance {
+  id: string;
+  user_id: string;
+  date: string;
+  check_in: string | null;
+  check_out: string | null;
+  status: string;
+  location_in: string | null;
+  location_out: string | null;
+}
+
+export default function AttendancePage() {
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [mounted, setMounted] = useState(false);
+  
+  const token = useAuthStore((state) => state.token);
+  const user = useAuthStore((state) => state.user);
+
+  useEffect(() => {
+    setMounted(true);
+    fetchMyAttendance();
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, [token]);
+
+  const fetchMyAttendance = async () => {
+    if (!token) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/attendance/my`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setAttendance(data);
+    } catch (e) {
+      console.error("Attendance fetch error:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCheckIn = async () => {
+    if (!token) return;
+    setSubmitting(true);
+    
+    // Attempt to get geolocation with timeout to prevent hanging
+    let location = "Remote / Field";
+    try {
+      const pos = await new Promise<GeolocationPosition>((res, rej) => {
+        const timeout = setTimeout(() => rej(new Error("Timeout")), 5000);
+        navigator.geolocation.getCurrentPosition(
+          (p) => { clearTimeout(timeout); res(p); },
+          (e) => { clearTimeout(timeout); rej(e); },
+          { timeout: 5000 }
+        );
+      });
+      location = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+    } catch (e) {
+      console.warn("Geolocation failed or timed out, using default.", e);
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/attendance/check-in`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ location })
+      });
+      if (res.ok) {
+        fetchMyAttendance();
+      } else {
+        const err = await res.json();
+        alert(err.message || "Check-in failed");
+      }
+    } catch (e) {
+      alert("Network error: Could not reach backend");
+      console.error(e);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDownloadReport = () => {
+    if (attendance.length === 0) {
+      alert("No attendance records found to export.");
+      return;
+    }
+    
+    // Prepare CSV Content
+    const headers = ["Date", "Day", "Check In", "Check Out", "Duration", "Status", "Location In"];
+    const csvRows = attendance.map(record => {
+      const date = new Date(record.date);
+      const duration = record.check_in && record.check_out ? 
+        `${Math.floor((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) / (1000 * 60 * 60))}h ${Math.floor(((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) % (1000 * 60 * 60)) / (1000 * 60))}m` 
+        : record.check_in ? "Ongoing" : "0h 0m";
+        
+      return [
+        date.toLocaleDateString(),
+        date.toLocaleDateString([], { weekday: 'long' }),
+        record.check_in ? new Date(record.check_in).toLocaleTimeString([], { hour12: true }) : "--",
+        record.check_out ? new Date(record.check_out).toLocaleTimeString([], { hour12: true }) : "--",
+        duration,
+        record.status,
+        `"${record.location_in || "N/A"}"`
+      ].join(",");
+    });
+
+    const csvContent = [headers.join(","), ...csvRows].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `GSS_Attendance_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCheckOut = async () => {
+    if (!token) return;
+    setSubmitting(true);
+
+    let location = "Remote / Field";
+    try {
+      const pos = await new Promise<GeolocationPosition>((res, rej) => {
+        const timeout = setTimeout(() => rej(new Error("Timeout")), 5000);
+        navigator.geolocation.getCurrentPosition(
+          (p) => { clearTimeout(timeout); res(p); },
+          (e) => { clearTimeout(timeout); rej(e); },
+          { timeout: 5000 }
+        );
+      });
+      location = `${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+    } catch (e) {
+      console.warn("Geolocation failed or timed out.");
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/attendance/check-out`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ location })
+      });
+      if (res.ok) {
+        fetchMyAttendance();
+      } else {
+        const err = await res.json();
+        alert(err.message || "Check-out failed");
+      }
+    } catch (e) {
+      alert("Network error: Could not reach backend");
+      console.error(e);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const todayRecord = attendance.find(a => {
+    const d = new Date(a.date);
+    const now = new Date();
+    return d.getFullYear() === now.getFullYear() &&
+           d.getMonth() === now.getMonth() &&
+           d.getDate() === now.getDate();
+  });
+
+  return (
+    <div className="space-y-8 pb-10">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600">
+            Attendance Hub
+          </h1>
+          <p className="text-muted-foreground font-medium">Real-time workforce tracking and operational logging.</p>
+        </div>
+
+        <div className="bg-card/50 px-6 py-3 rounded-2xl border border-border flex items-center gap-4 shadow-sm backdrop-blur-md">
+          <div className="text-right">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Current Server Time</p>
+            <p className="text-xl font-black text-foreground tabular-nums">
+              {mounted ? currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : "--:--:--"}
+            </p>
+          </div>
+          <div className="w-px h-10 bg-border" />
+          <div className="text-right">
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{mounted ? currentTime.toLocaleDateString([], { weekday: 'long' }) : "---"}</p>
+            <p className="text-foreground/80 font-bold">{mounted ? currentTime.toLocaleDateString([], { day: 'numeric', month: 'short' }) : "---"}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Check-in/out Card */}
+        <div className="lg:col-span-1">
+          <div className="bg-card border border-border rounded-3xl p-8 relative overflow-hidden group shadow-sm">
+            <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+              <Timer className="w-32 h-32 text-foreground" />
+            </div>
+            
+            <div className="space-y-8 relative z-10">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center border border-blue-500/20 shadow-lg shadow-blue-500/5">
+                  <User className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-foreground leading-tight">Identity Verified</h3>
+                  <p className="text-muted-foreground text-xs font-medium uppercase tracking-widest">Active Session • {user?.name}</p>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground font-bold uppercase tracking-widest text-[10px]">Duty Status</span>
+                  <span className={cn("px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-tighter ring-1", 
+                    todayRecord ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/20" : "bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-rose-500/20"
+                  )}>
+                    {todayRecord ? (todayRecord.check_out ? "OFF DUTY" : "ON DUTY") : "YET TO COMMENCE"}
+                  </span>
+                </div>
+                
+                {!todayRecord ? (
+                  <Button 
+                    onClick={handleCheckIn}
+                    disabled={submitting}
+                    className="w-full h-16 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black text-lg shadow-xl shadow-blue-500/20 rounded-2xl border-0 transition-all hover:scale-[1.02] active:scale-95"
+                  >
+                    {submitting ? "Synchronizing GPS..." : "Commence Duty"}
+                  </Button>
+                ) : !todayRecord.check_out ? (
+                  <Button 
+                    onClick={handleCheckOut}
+                    disabled={submitting}
+                    className="w-full h-16 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black text-lg shadow-xl shadow-rose-500/20 rounded-2xl border-0 transition-all hover:scale-[1.02] active:scale-95"
+                  >
+                    {submitting ? "Capturing Location..." : "Conclude Duty"}
+                  </Button>
+                ) : (
+                  <div className="h-16 flex items-center justify-center bg-muted/50 rounded-2xl border border-dashed border-border text-muted-foreground font-bold italic text-sm">
+                    Duty cycles completed for today.
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-6 border-t border-border grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Check In</p>
+                  <p className="text-foreground font-bold">{mounted && todayRecord?.check_in ? new Date(todayRecord.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Check Out</p>
+                  <p className="text-foreground font-bold">{mounted && todayRecord?.check_out ? new Date(todayRecord.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-muted-foreground text-xs bg-muted/30 p-3 rounded-xl border border-border">
+                <MapPin className="w-4 h-4 text-rose-500/50" />
+                <span>Geo-Tag: <span className="text-foreground/80 font-medium">{todayRecord?.location_in || "Detecting..."}</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Attendance History */}
+        <div className="lg:col-span-2 space-y-4">
+          <div className="flex items-center justify-between px-2">
+            <h3 className="text-xl font-bold flex items-center gap-2 text-foreground">
+              <History className="w-5 h-5 text-indigo-600 dark:text-indigo-400" /> Operational Logs
+            </h3>
+            <div className="flex items-center gap-2">
+              <Button 
+                onClick={handleDownloadReport}
+                variant="outline" 
+                size="sm" 
+                className="bg-card text-muted-foreground hover:text-foreground rounded-full px-4 text-xs font-bold uppercase tracking-widest border-border"
+              >
+                Download Report
+              </Button>
+            </div>
+          </div>
+
+          <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm backdrop-blur-md">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-muted border-b border-border">
+                  <tr>
+                    <th className="px-6 py-4 text-[10px] font-black text-muted-foreground uppercase tracking-widest">Date & Cycle</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-muted-foreground uppercase tracking-widest">Duty Range</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-muted-foreground uppercase tracking-widest">Duration</th>
+                    <th className="px-6 py-4 text-[10px] font-black text-muted-foreground uppercase tracking-widest">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground">
+                        <div className="flex flex-col items-center gap-3">
+                          <Clock className="w-6 h-6 animate-spin opacity-20" />
+                          <p className="text-[10px] font-black uppercase tracking-widest animate-pulse">Syncing Cloud Ledger...</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : attendance.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-12 text-center text-muted-foreground text-sm italic font-medium">
+                        No operational logs found in the ledger.
+                      </td>
+                    </tr>
+                  ) : attendance.map((record) => (
+                    <tr key={record.id} className="hover:bg-accent/5 transition-colors group">
+                      <td className="px-6 py-4">
+                        <div className="text-foreground font-bold">{new Date(record.date).toLocaleDateString([], { day: '2-digit', month: 'short', year: 'numeric' })}</div>
+                        <div className="text-muted-foreground text-[10px] font-black uppercase tracking-widest mt-0.5">{new Date(record.date).toLocaleDateString([], { weekday: 'long' })}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <span className="text-foreground/80 font-medium tabular-nums">{record.check_in ? new Date(record.check_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}</span>
+                          <ArrowRightLeft className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-foreground/80 font-medium tabular-nums">{record.check_out ? new Date(record.check_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "--:--"}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-muted-foreground text-sm font-bold tabular-nums">
+                          {record.check_in && record.check_out ? 
+                            `${Math.floor((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) / (1000 * 60 * 60))}h ${Math.floor(((new Date(record.check_out).getTime() - new Date(record.check_in).getTime()) % (1000 * 60 * 60)) / (1000 * 60))}m` 
+                            : record.check_in ? "Ongoing cycle..." : "0h 0m"}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          <span className={cn("w-2 h-2 rounded-full shadow-[0_0_8px_rgba(0,0,0,0.2)]", 
+                            record.status === 'PRESENT' ? "bg-emerald-500 shadow-emerald-500/50" : "bg-rose-500 shadow-rose-500/50"
+                          )} />
+                          <span className="text-foreground/80 font-bold text-xs">{record.status}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
